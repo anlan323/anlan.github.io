@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>Anlan.的小站 - 下拉动效</title>
+    <style>
+        /* 全局样式重置 */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        /* 页面基础样式 */
+        body {
+            min-height: 600vh; /* 加长页面，支持多次下拉 */
+            background-color: #f0f2f5;
+            font-family: "Microsoft Yahei", sans-serif;
+            position: relative;
+            scroll-padding-top: 80px;
+        }
+
+        /* 核心容器：包含图片和文字 */
+        .profile-container {
+            position: fixed; /* 固定定位，滚动时跟随 */
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            /* 位置/大小过渡 + 淡出过渡（延迟0.1s更自然） */
+            transition: all 0.5s ease, opacity 0.6s ease 0.1s;
+            z-index: 100;
+            background-color: rgba(240, 242, 245, 0.8);
+            padding: 10px;
+            border-radius: 10px;
+        }
+
+        /* 第一次滚动：移到左上角 */
+        .profile-container.scrolled {
+            top: 20px;
+            left: 20px;
+            transform: translate(0, 0);
+        }
+
+        /* 第二次滚动：头像+文字淡出 */
+        .profile-container.fade-out {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        /* 圆形头像样式 */
+        .avatar {
+            width: 170px;
+            height: 170px;
+            border-radius: 50%;
+            object-fit: cover;
+            transition: width 0.5s ease, height 0.5s ease;
+        }
+
+        /* 第一次滚动后头像缩小 */
+        .profile-container.scrolled .avatar {
+            width: 60px;
+            height: 60px;
+        }
+
+        /* 文字样式 */
+        .intro-text {
+            font-size: 24px;
+            font-weight: 700;
+            color: #333;
+            order: 2; /* 初始在图片下方 */
+            transition: font-size 0.5s ease, order 0.5s ease;
+        }
+
+        /* 第一次滚动后文字移到图片左侧+缩小 */
+        .profile-container.scrolled .intro-text {
+            font-size: 18px;
+            order: 1; /* 移到图片左侧 */
+        }
+
+        /* 底部提示文字（滚动后隐藏） */
+        .pull-tip {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 16px;
+            color: #666;
+            transition: opacity 0.3s ease;
+            z-index: 95;
+        }
+
+        .arrow {
+            margin: 0 8px;
+            font-size: 18px;
+            color: #666;
+        }
+
+        .pull-tip.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        /* 个人简介+图片轮播容器 */
+        .intro-wrapper {
+            position: absolute;
+            top: 100vh; /* 初始在视口外，下拉后可见 */
+            left: 0;
+            width: 100%;
+            padding: 120px 20px 400px 20px; 
+            z-index: 90;
+            /* 简介和图片左右布局 */
+            display: flex;
+            gap: 40px;
+            align-items: flex-start;
+            background-color: #f0f2f5;
+            /* 响应式：小屏幕自动换行 */
+            flex-wrap: wrap;
+            justify-content: center;
+            /* 淡出过渡 */
+            transition: opacity 0.6s ease;
+        }
+
+        /* 第二次滚动：整个容器淡出 */
+        .intro-wrapper.content-fade {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        /* 个人简介文字区域 */
+        .intro-content {
+            flex: 1;
+            min-width: 300px;
+            color: #333;
+            font-size: 16px;
+            line-height: 1.8;
+        }
+
+        /* 右侧图片轮播容器 - 核心修改：更多露出左右图片 */
+        .image-carousel {
+            flex: 1;
+            min-width: 300px;
+            position: relative;
+            overflow: hidden;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            height: 420px; /* 轮播容器高度 */
+            padding: 0 80px; /* 增大左右内边距，更多露出次要图片（原40px） */
+        }
+
+        /* 轮播图片列表 - 核心修改：调整宽度和过渡 */
+        .carousel-slides {
+            display: flex;
+            width: calc(100% * 4); /* 4张图片总宽度 */
+            height: 100%;
+            transition: transform 0.8s ease; /* 放慢切换动画更自然 */
+        }
+
+        /* 轮播单张图片 - 核心修改：调整宽度和透明度 */
+        .carousel-slide {
+            width: calc(100% / 4); /* 单张图片宽度 */
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            opacity: 0.4; /* 非当前图片默认半透明 */
+            transition: opacity 0.8s ease; /* 透明度过渡 */
+        }
+
+        /* 当前显示的图片样式 - 核心：高亮+居中 */
+        .carousel-slide.active {
+            opacity: 1; /* 当前图片完全不透明 */
+            transform: scale(1); /* 当前图片正常大小 */
+        }
+
+        /* 左右待切换图片样式 - 核心：缩小+半透明（更多展示） */
+        .carousel-slide.prev, .carousel-slide.next {
+            opacity: 0.6; /* 提高透明度，更清晰（原0.4） */
+            transform: scale(0.95); /* 缩小比例降低，展示更多（原0.9） */
+        }
+
+        .carousel-img {
+            width: 100%;
+            height: 65%; /* 稍微缩小，避免溢出 */
+            object-fit: cover;
+            display: block;
+            border-radius: 6px;
+        }
+
+        /* 轮播左右切换按钮 - 完全隐藏 */
+        .carousel-btn {
+            display: none; /* 移除切换箭头 */
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 40px;
+            height: 40px;
+            background-color: rgba(255,255,255,0.9);
+            border: none;
+            border-radius: 50%;
+            font-size: 20px;
+            color: #333;
+            cursor: pointer;
+            z-index: 20;
+            transition: background-color 0.3s ease;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+
+        .carousel-btn:hover {
+            background-color: #fff;
+        }
+
+        .carousel-prev {
+            left: 10px; /* 左按钮贴边 */
+        }
+
+        .carousel-next {
+            right: 10px; /* 右按钮贴边 */
+        }
+
+        /* 平滑滚动 */
+        html {
+            scroll-behavior: smooth;
+        }
+    </style>
+</head>
+<body>
+    <!-- 核心容器：图片+文字 -->
+    <div class="profile-container">
+        <img src="https://p11-flow-imagex-sign.byteimg.com/tos-cn-i-a9rns2rl98/3615797be1164e948b47cd47b615f500.jpg~tplv-a9rns2rl98-image.png?lk3s=8e244e95&rcl=202603021641050F58C013C1C33BA2A007&rrcfp=dafada99&x-expires=2088664865&x-signature=L1xyKPGmCNaUPXAR8xH6r5jNBW8%3D" alt="角色头像" class="avatar">
+        <div class="intro-text">Anlan.的小站</div>
+    </div>
+
+    <!-- 底部提示文字 -->
+    <div class="pull-tip">
+        <span class="arrow">↓</span>
+        下拉查看个人简介
+        <span class="arrow">↓</span>
+    </div>
+
+    <!-- 个人简介+图片轮播容器 -->
+    <div class="intro-wrapper">
+        <!-- 左侧个人简介文字 -->
+        <div class="intro-content">
+            <h2 style="font-size: 32px; margin-bottom: 30px; color: #222;">个人简介</h2>
+            <p style="margin-bottom: 20px; font-size: 18px;">欢迎来到 Anlan.的小站！</p>
+            <p style="margin-bottom: 20px;">这里是我用于记录搭建的小站</p>
+            <p style="margin-bottom: 20px;">在这里我将记录我感到新鲜的事物，日常生活，与精彩瞬间。</p>
+            <p style="margin-bottom: 20px;">无论是游戏、生活还是人际关系，都能在这里找到我的记录。</p>
+			<p style="margin-bottom: 10px;">pc：这个应该能活久一点吧，对。</p>
+            <p style="font-size: 18px; color: #666; margin-top: 40px;">继续下拉所有内容将淡出 ↓</p>
+        </div>
+
+        <!-- 右侧图片轮播区 - 已移除箭头按钮 -->
+        <div class="image-carousel">
+            <!-- 轮播图片列表 -->
+<div class="carousel-slides">
+    <div class="carousel-slide active" data-index="0">
+        <img src="https://p3-flow-imagex-sign.byteimg.com/tos-cn-i-a9rns2rl98/962a1f8945f6485188ceb758f447f9f2.jpg~tplv-a9rns2rl98-image.png?lk3s=8e244e95&rcl=202603021911328B83230DAB607BA20A1D&rrcfp=dafada99&x-expires=2088673892&x-signature=zcWJoXmIG0bKdIwkwYbP6RMR9R4%3D" alt="图片1" class="carousel-img">
+    </div>
+    <div class="carousel-slide" data-index="1">
+        <img src="https://p11-flow-imagex-sign.byteimg.com/tos-cn-i-a9rns2rl98/ce91f624a86c443d8e6ae826ddffff50.jpg~tplv-a9rns2rl98-image.png?lk3s=8e244e95&rcl=202603021911328B83230DAB607BA20A1D&rrcfp=dafada99&x-expires=2088673892&x-signature=Vq5TQzjyJBlLeAoTr9l8cTRpBi8%3D" alt="图片2" class="carousel-img">
+    </div>
+    <div class="carousel-slide" data-index="2">
+        <img src="https://p9-flow-imagex-sign.byteimg.com/tos-cn-i-a9rns2rl98/329282fe014941bfa1b9ecb4bc193e52.jpg~tplv-a9rns2rl98-image.png?lk3s=8e244e95&rcl=20260302192540CE80E5D0EA5286D02377&rrcfp=dafada99&x-expires=2088674740&x-signature=9UNlpd9dxEqUK68SOskkCLdb004%3D" alt="夜景图" class="carousel-img">
+    </div>
+    <div class="carousel-slide" data-index="3">
+        <img src="https://p3-flow-imagex-sign.byteimg.com/tos-cn-i-a9rns2rl98/36f230152b534f5493d9b01f30c3fc49.jpg~tplv-a9rns2rl98-image.png?lk3s=8e244e95&rcl=20260302191714DF06D2915383E3A5A3E1&rrcfp=dafada99&x-expires=2088674234&x-signature=XTyhqq9wVMDxj%2FidfQRKL%2FH5nEg%3D" alt="图片4" class="carousel-img">
+    </div>
+</div>
+            <!-- 已删除切换箭头按钮 -->
+        </div>
+    </div>
+
+    <script>
+        // 获取核心元素
+        const profileContainer = document.querySelector('.profile-container');
+        const pullTip = document.querySelector('.pull-tip');
+        const introWrapper = document.querySelector('.intro-wrapper');
+
+        // 定义分层滚动阈值
+        const FIRST_SCROLL = 50;     // 第一次下拉：头像移左上角，显示简介
+        const SECOND_SCROLL = 800;   // 第二次下拉：所有内容淡出
+        const SCROLL_STEP = 150;     // 键盘每次滚动距离
+
+        // 监听页面滚动事件
+        window.addEventListener('scroll', function() {
+            const scrollTop = window.scrollY;
+
+            // 第一层：基础滚动（显示简介，头像移左上角）
+            if (scrollTop > FIRST_SCROLL) {
+                profileContainer.classList.add('scrolled');
+                pullTip.classList.add('hidden');
+            } else {
+                // 回到顶部：恢复所有初始状态
+                profileContainer.classList.remove('scrolled', 'fade-out');
+                introWrapper.classList.remove('content-fade');
+                pullTip.classList.remove('hidden');
+                return;
+            }
+
+            // 第二层：继续下拉（所有内容淡出）
+            if (scrollTop > SECOND_SCROLL) {
+                profileContainer.classList.add('fade-out');
+                introWrapper.classList.add('content-fade');
+                // 淡出时暂停自动轮播
+                pauseAutoPlay();
+            } else {
+                // 回到第一层：恢复显示并重启自动轮播
+                profileContainer.classList.remove('fade-out');
+                introWrapper.classList.remove('content-fade');
+                startAutoPlay();
+            }
+        });
+
+        // 监听小键盘/普通上下键控制滚动 + 左右键切换轮播
+        window.addEventListener('keydown', function(e) {
+            if (e.keyCode === 38 || e.keyCode === 104) {
+                // 上键：向上滚动
+                window.scrollBy({ top: -SCROLL_STEP, behavior: 'smooth' });
+                e.preventDefault();
+            } else if (e.keyCode === 40 || e.keyCode === 98) {
+                // 下键：向下滚动
+                window.scrollBy({ top: SCROLL_STEP, behavior: 'smooth' });
+                e.preventDefault();
+            }
+            // 轮播切换：左右键/小键盘左右键（移除箭头后仅靠键盘切换）
+            else if (e.keyCode === 37 || e.keyCode === 100) {
+                // 左箭头：上一张轮播图
+                goToSlide(currentIndex - 1);
+                // 手动切换后重置自动轮播计时器
+                resetAutoPlay();
+                e.preventDefault();
+            } else if (e.keyCode === 39 || e.keyCode === 102) {
+                // 右箭头：下一张轮播图
+                goToSlide(currentIndex + 1);
+                // 手动切换后重置自动轮播计时器
+                resetAutoPlay();
+                e.preventDefault();
+            }
+        });
+
+        // 轮播核心逻辑 - 支持左右图片淡入淡出效果 + 自动切换
+        const carouselSlides = document.querySelector('.carousel-slides');
+        const slideItems = document.querySelectorAll('.carousel-slide');
+        let currentIndex = 0; // 当前轮播索引
+        const slideCount = slideItems.length; // 图片总数
+        const AUTO_PLAY_INTERVAL = 1450; // 自动切换时间：秒
+        let autoPlayTimer = null; // 自动轮播计时器
+
+        // 初始化轮播样式
+        function initCarousel() {
+            // 设置初始偏移，让第一张图片居中
+            updateSlideStyles();
+            // 初始偏移计算：让当前图片居中显示
+            carouselSlides.style.transform = `translateX(-${(100 / slideCount) * currentIndex}%)`;
+            // 启动自动轮播
+            startAutoPlay();
+        }
+
+        // 更新轮播图片样式（active/prev/next类）
+        function updateSlideStyles() {
+            // 移除所有类
+            slideItems.forEach(item => {
+                item.classList.remove('active', 'prev', 'next');
+            });
+
+            // 给当前图片加active类
+            slideItems[currentIndex].classList.add('active');
+            
+            // 计算上一张/下一张索引（循环）
+            const prevIndex = (currentIndex - 1 + slideCount) % slideCount;
+            const nextIndex = (currentIndex + 1) % slideCount;
+
+            // 给上下张加对应类
+            slideItems[prevIndex].classList.add('prev');
+            slideItems[nextIndex].classList.add('next');
+        }
+
+        // 切换轮播图函数
+        function goToSlide(index) {
+            // 边界处理：循环切换
+            currentIndex = (index + slideCount) % slideCount;
+            
+            // 更新偏移：让当前图片居中
+            carouselSlides.style.transform = `translateX(-${(100 / slideCount) * currentIndex}%)`;
+            
+            // 更新图片样式（透明度/大小）
+            updateSlideStyles();
+        }
+
+        // 启动自动轮播
+        function startAutoPlay() {
+            // 先清除已有计时器，避免重复创建
+            if (autoPlayTimer) clearInterval(autoPlayTimer);
+            // 每秒切换到下一张
+            autoPlayTimer = setInterval(() => {
+                goToSlide(currentIndex + 1);
+            }, AUTO_PLAY_INTERVAL);
+        }
+
+        // 暂停自动轮播
+        function pauseAutoPlay() {
+            if (autoPlayTimer) {
+                clearInterval(autoPlayTimer);
+                autoPlayTimer = null;
+            }
+        }
+
+        // 重置自动轮播（手动切换后调用）
+        function resetAutoPlay() {
+            pauseAutoPlay();
+            startAutoPlay();
+        }
+
+        // 鼠标悬停轮播容器时暂停，离开时恢复
+        const carouselContainer = document.querySelector('.image-carousel');
+        carouselContainer.addEventListener('mouseenter', pauseAutoPlay);
+        carouselContainer.addEventListener('mouseleave', startAutoPlay);
+
+        // 初始化轮播
+        initCarousel();
+    </script>
+</body>
+</html>
